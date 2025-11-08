@@ -515,7 +515,7 @@ static DWORD WINAPI CheckForUpdatesThread(LPVOID param)
 {
 	BOOL releases_only, found_new_version = FALSE;
 	int status = 0;
-	const char* server_url = APPLICATION_URL "/";
+	const char* server_url = update_base_url;
 	int i, j, k, verbose = 0, verpos[4];
 	static const char* archname[] = { "win_x86", "win_x64" };
 	static const char* channel[] = { "release", "beta" };		// release channel

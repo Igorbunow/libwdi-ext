@@ -82,7 +82,12 @@ float fScale = 1.0f;
 WORD application_version[4];
 char app_dir[MAX_PATH], driver_text[64];
 char szFolderPath[MAX_PATH];
-const char* driver_display_name[WDI_NB_DRIVERS] = { "WinUSB", "libusb-win32", "libusbK", "USB Serial (CDC)", "Custom (extract only)" };
+char user_inf_name[MAX_PATH] = "userdrv.inf";
+char user_display_name[128]  = "User Driver ({inf})";
+char update_base_url[256] = APPLICATION_URL "/";
+BOOL updates_disabled = FALSE;
+static char custom_display_buf[128] = "User (custom)";
+const char* driver_display_name[WDI_NB_DRIVERS] = { "WinUSB", "libusb-win32", "libusbK", "USB Serial (CDC)", custom_display_buf};
 const char* driver_name[WDI_NB_DRIVERS] = { "WinUSB", "libusb0", "libusbK", "usbser", "custom" };
 struct wdi_options_create_list cl_options = { 0 };
 struct wdi_options_prepare_driver pd_options = { 0 };
@@ -114,6 +119,24 @@ int wcid_type = WDI_USER;
 UINT64 target_driver_version = 0;
 EXT_DECL(log_ext, "Zadig.log", __VA_GROUP__("*.log"), __VA_GROUP__("Zadig log"));
 EXT_DECL(cfg_ext, "sample.cfg", __VA_GROUP__("*.cfg"), __VA_GROUP__("Zadig device config"));
+
+
+/* simple substitution of {inf} in user_display_name -> custom_display_buf */
+static void update_custom_display_name(void)
+{
+    const char* p = strstr(user_display_name, "{inf}");
+    if (p == NULL) {
+        safe_strcpy(custom_display_buf, sizeof(custom_display_buf), user_display_name);
+    } else {
+        size_t pre = (size_t)(p - user_display_name);
+        if (pre >= sizeof(custom_display_buf)) pre = sizeof(custom_display_buf)-1;
+        memcpy(custom_display_buf, user_display_name, pre);
+        custom_display_buf[pre] = '\0';
+        safe_strcat(custom_display_buf, sizeof(custom_display_buf), user_inf_name);
+        safe_strcat(custom_display_buf, sizeof(custom_display_buf), p + 5 /* strlen("{inf}") */);
+    }
+    driver_display_name[WDI_NB_DRIVERS-1] = custom_display_buf;
+}
 
 /*
  * On screen logging and status
@@ -368,6 +391,15 @@ int install_driver(void)
 		dprintf("Using inf name: %s", inf_name);
 	}
 
+	// If the custom driver (WDI_USER) is selected, use the specified INF file,
+	// which is located in the built-in USER_DIR (see --with-userdir / USER_DIR).
+	// This allows installing a pre-built FTDI package (ftdibus.inf + cat/sys/dll).
+	if (pd_options.driver_type == WDI_USER) {
+		safe_free(inf_name);
+		inf_name = safe_strdup(user_inf_name);
+		dprintf("Using USER driver INF from ini: %s", user_inf_name);
+	}
+
 	// Perform extraction/installation
 	if (id_options.install_filter_driver) {
 		if ((!has_filter_driver) && (MessageBoxA(hMainDialog, "WARNING:\n"
@@ -384,7 +416,8 @@ int install_driver(void)
 	if (r == WDI_SUCCESS) {
 		dsprintf("Successfully extracted driver files.");
 		// Perform the install if not extracting the files only
-		if ((pd_options.driver_type != WDI_USER) && (!extract_only)) {
+		// Proceed with the installation unless the 'extract only' mode is enabled.
+		if (!extract_only) {
 			if ( (get_driver_type(dev) == DT_SYSTEM)
 			  && (MessageBoxA(hMainDialog, "You are about to modify a system driver.\n"
 					"Are you sure this is what you want?", "Warning - System Driver",
@@ -1337,6 +1370,40 @@ BOOL parse_ini(void) {
 	profile_get_boolean(profile, "driver", "extract_only", NULL, FALSE, &extract_only);
 	profile_get_boolean(profile, "device", "trim_whitespaces", NULL, FALSE, &cl_options.trim_whitespaces);
 	profile_get_boolean(profile, "security", "disable_cert_install_warning", NULL, FALSE, &ic_options.disable_warning);
+	
+	// Custom INF name for WDI_USER
+	tmp = NULL;
+	profile_get_string(profile, "driver", "user_inf", NULL, NULL, &tmp);
+	if (tmp != NULL) {
+		safe_strcpy(user_inf_name, sizeof(user_inf_name), tmp);
+		safe_free(tmp);
+	}
+	
+	// Read the display name of the item
+	tmp = NULL;
+	profile_get_string(profile, "driver", "user_display", NULL, NULL, &tmp);
+	if (tmp != NULL) {
+		strncpy(user_display_name, tmp, sizeof(user_display_name)-1);
+		user_display_name[sizeof(user_display_name)-1] = '\0';
+		safe_free(tmp);
+	}
+	
+	
+	// Update settings
+	profile_get_boolean(profile, "updates", "disable", NULL, FALSE, &updates_disabled);
+	tmp = NULL;
+	profile_get_string(profile, "updates", "base_url", NULL, NULL, &tmp);
+	if (tmp != NULL) {
+		strncpy(update_base_url, tmp, sizeof(update_base_url)-1);
+		update_base_url[sizeof(update_base_url)-1] = '\0';
+		size_t ulen = strlen(update_base_url);
+		if (ulen > 0 && update_base_url[ulen-1] != '/')
+			safe_strcat(update_base_url, sizeof(update_base_url), "/");
+		safe_free(tmp);
+	}
+	
+	//After reading user_inf and user_display — form the caption in the GUI
+	update_custom_display_name();
 
 	// Set the log level
 	profile_get_integer(profile, "general", "log_level", NULL, WDI_LOG_LEVEL_INFO, &log_level);
@@ -1608,8 +1675,8 @@ INT_PTR CALLBACK main_callback(HWND hDlg, UINT message, WPARAM wParam, LPARAM lP
 
 		// Main init
 		init_dialog(hDlg);
-		CheckForUpdates(FALSE);
-
+		if (!updates_disabled) CheckForUpdates(FALSE);
+		
 		// Fall through
 	case UM_REFRESH_LIST:
 		NOT_DURING_INSTALL;

@@ -207,6 +207,11 @@ extern HWND hStatus;
 extern WORD application_version[4];
 extern DWORD error_code;
 extern char szFolderPath[MAX_PATH], app_dir[MAX_PATH];
+/* Driver item text in GUI (from ini) */
+extern char user_inf_name[MAX_PATH];
+extern char user_display_name[128];
+extern char update_base_url[256];
+extern BOOL updates_disabled;
 extern int dialog_showing;
 extern BOOL installation_running;
 extern APPLICATION_UPDATE update;
