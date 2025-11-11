@@ -114,8 +114,10 @@ BOOL unknown_vid = FALSE;
 BOOL has_filter_driver = FALSE;
 BOOL use_arrow_icons = FALSE;
 BOOL exit_on_success = FALSE;
+BOOL no_syslog_wait_ini = FALSE;
 enum wcid_state has_wcid = WCID_NONE;
 int wcid_type = WDI_USER;
+int post_install_verify_timeout_ini = 2000;
 UINT64 target_driver_version = 0;
 EXT_DECL(log_ext, "Zadig.log", __VA_GROUP__("*.log"), __VA_GROUP__("Zadig log"));
 EXT_DECL(cfg_ext, "sample.cfg", __VA_GROUP__("*.cfg"), __VA_GROUP__("Zadig device config"));
@@ -426,8 +428,8 @@ int install_driver(void)
 			}
 			dsprintf("Installing driver. Please wait...");
 			id_options.hWnd = hMainDialog;
-			id_options.no_syslog_wait = TRUE;                  // быстрый и предсказуемый выход
-			id_options.post_install_verify_timeout = 2000;     // короткий settle-полл (опционально)
+			id_options.no_syslog_wait = no_syslog_wait_ini;    // быстрый и предсказуемый выход
+			id_options.post_install_verify_timeout = post_install_verify_timeout_ini;     // короткий settle-полл (опционально)
 			r = wdi_install_driver(dev, szFolderPath, inf_name, &id_options);
 			// Switch to non driverless-only mode and set hw ID to show the newly installed device
 			current_device_hardware_id = (dev != NULL)?safe_strdup(dev->hardware_id):NULL;
@@ -1374,6 +1376,14 @@ BOOL parse_ini(void) {
 	profile_get_boolean(profile, "driver", "extract_only", NULL, FALSE, &extract_only);
 	profile_get_boolean(profile, "device", "trim_whitespaces", NULL, FALSE, &cl_options.trim_whitespaces);
 	profile_get_boolean(profile, "security", "disable_cert_install_warning", NULL, FALSE, &ic_options.disable_warning);
+	profile_get_boolean(profile, "behavior", "no_syslog_wait", NULL, FALSE, &no_syslog_wait_ini);
+	
+	
+	profile_get_integer(profile, "general", "log_level", NULL, 2000, &post_install_verify_timeout_ini);
+	if ((post_install_verify_timeout_ini < 0)) {
+		post_install_verify_timeout_ini = 2000;
+	}
+	
 	
 	// Custom INF name for WDI_USER
 	tmp = NULL;
@@ -1414,6 +1424,8 @@ BOOL parse_ini(void) {
 	if ((log_level < WDI_LOG_LEVEL_DEBUG) || (log_level > WDI_LOG_LEVEL_NONE)) {
 		log_level = WDI_LOG_LEVEL_INFO;
 	}
+	
+	
 
 	// Set the default extraction dir
 	if ((profile_get_string(profile, "driver", "default_dir", NULL, NULL, &tmp) == 0) && (tmp != NULL)) {
