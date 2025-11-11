@@ -426,6 +426,8 @@ int install_driver(void)
 			}
 			dsprintf("Installing driver. Please wait...");
 			id_options.hWnd = hMainDialog;
+			id_options.no_syslog_wait = TRUE;                  // быстрый и предсказуемый выход
+			id_options.post_install_verify_timeout = 2000;     // короткий settle-полл (опционально)
 			r = wdi_install_driver(dev, szFolderPath, inf_name, &id_options);
 			// Switch to non driverless-only mode and set hw ID to show the newly installed device
 			current_device_hardware_id = (dev != NULL)?safe_strdup(dev->hardware_id):NULL;
@@ -884,6 +886,8 @@ static __inline const char* get_arch_name(USHORT uArch)
 static USHORT get_platform_arch(void)
 {
 	BOOL is_64bit = FALSE, is_wow64 = FALSE;
+	(void)is_64bit;
+	(void)is_wow64;
 	USHORT ProcessMachine = IMAGE_FILE_MACHINE_UNKNOWN, NativeMachine = IMAGE_FILE_MACHINE_UNKNOWN;
 
 	PF_TYPE_DECL(WINAPI, BOOL, IsWow64Process2, (HANDLE, USHORT*, USHORT*));

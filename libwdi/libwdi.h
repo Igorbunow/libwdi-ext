@@ -213,6 +213,10 @@ struct wdi_options_install_driver {
 	BOOL install_filter_driver;
 	/** Number of milliseconds to wait for any pending installations */
 	UINT32 pending_install_timeout;
+	/** Do not wait for SetupAPI log tail; finish as soon as installer reports completion */
+	BOOL no_syslog_wait;
+	/** Optional: poll SPDRP_SERVICE for up to N ms to see target service bound (0 = skip) */
+	UINT32 post_install_verify_timeout;
 };
 
 // wdi_install_trusted_certificate options:

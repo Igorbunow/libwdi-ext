@@ -40,6 +40,7 @@
 #include <wincrypt.h>
 #include <winternl.h>
 #include <assert.h>
+#include <setupapi.h>
 
 #include "installer.h"
 #include "libwdi.h"
@@ -53,7 +54,9 @@
 // Global variables
 static struct wdi_device_info *current_device = NULL;
 static BOOL filter_driver = FALSE;
+static BOOL g_no_syslog_wait_run = FALSE;
 static DWORD timeout = DEFAULT_TIMEOUT;
+static volatile LONG g_installer_completed = 0;
 static HANDLE pipe_handle = INVALID_HANDLE_VALUE;
 static VS_FIXEDFILEINFO driver_version[WDI_NB_DRIVERS-1] = { {0}, {0}, {0}, {0} };
 static const char* driver_name[WDI_NB_DRIVERS-1] = {"winusbcoinstaller2.dll", "libusb0.dll", "libusbK.dll", ""};
@@ -98,10 +101,78 @@ static __inline const char* GetArchName(USHORT uArch)
 	}
 }
 
+/* ========================================================================
+ * WDI_SERVICE_VERIFY: helpers to confirm expected kernel service binding
+ * using SPDRP_SERVICE. Works on Windows 7 and later.
+ * ======================================================================== */
+static const char* expected_service_from_inf(const char* inf_name)
+{
+    if (!inf_name) return NULL;
+    /* very small heuristic — adjust if  */
+    if (strstr(inf_name, "winusb") || strstr(inf_name, "WinUSB"))   return "WinUSB";
+    if (strstr(inf_name, "libusbK") || strstr(inf_name, "LibUsbK")) return "libusbK";
+    if (strstr(inf_name, "ftdi")   || strstr(inf_name, "FTDI"))     return "ftdibus";
+    return NULL; // unknown → skip the check
+}
+
+static BOOL wait_for_expected_service(const char* device_instance_idA,
+                                      const char* expected_serviceA,
+                                      DWORD timeout_ms)
+{
+    if (!device_instance_idA || !*device_instance_idA ||
+        !expected_serviceA   || !*expected_serviceA) {
+        return FALSE;
+    }
+
+    // Create an empty set and open devinfo in it by instance ID
+    HDEVINFO hdi = SetupDiCreateDeviceInfoList(NULL, NULL);
+    if (hdi == INVALID_HANDLE_VALUE) {
+        return FALSE;
+    }
+
+    SP_DEVINFO_DATA did;
+    ZeroMemory(&did, sizeof(did));
+    did.cbSize = sizeof(did);
+    if (!SetupDiOpenDeviceInfoA(hdi, device_instance_idA, NULL, 0, &did)) {
+        SetupDiDestroyDeviceInfoList(hdi);
+        return FALSE;
+    }
+
+    const DWORD start = GetTickCount();
+    for (;;) {
+        CHAR svc[256] = {0};
+        DWORD reg_type = 0, needed = 0;
+
+        BOOL ok = SetupDiGetDeviceRegistryPropertyA(
+            hdi, &did, SPDRP_SERVICE, &reg_type, (PBYTE)svc, (DWORD)sizeof(svc), &needed);
+        if (ok && reg_type == REG_SZ && svc[0] != '\0') {
+            // case-insensitive comparison
+            if (_stricmp(svc, expected_serviceA) == 0) {
+                SetupDiDestroyDeviceInfoList(hdi);
+                return TRUE;
+            }
+        }
+
+        if (timeout_ms == 0) {
+            break;
+        }
+        if ((GetTickCount() - start) >= timeout_ms) {
+            break;
+        }
+        Sleep(50); // fast lightweight polling
+    }
+
+    SetupDiDestroyDeviceInfoList(hdi);
+    return FALSE;
+}
+
 // Detect the underlying platform arch.
 static USHORT GetPlatformArch(void)
 {
 	BOOL is_64bit = FALSE, is_wow64 = FALSE;
+	// WDI_SERVICE_VERIFY: silence unused warning for builds, where these flags are compiled but not used
+	(void)is_64bit;
+	(void)is_wow64;
 	USHORT ProcessMachine = IMAGE_FILE_MACHINE_UNKNOWN, NativeMachine = IMAGE_FILE_MACHINE_UNKNOWN;
 
 	PF_DECL_LIBRARY(Kernel32);
@@ -1669,9 +1740,18 @@ static int process_message(char* buffer, DWORD size)
 	case IC_SET_TIMEOUT_DEFAULT:
 		wdi_dbg("Switching timeout back to finite");
 		timeout = DEFAULT_TIMEOUT;
+		/* WDI_FAST_EXIT:
+			На Win10/11 хвост setupapi.dev.log может идти долго.
+			Если вызывающий просил не ждать syslog (no_syslog_wait),
+			завершаем сразу после возврата UpdateDriverForPlugAndPlayDevices(). */
+		if (g_no_syslog_wait_run) {
+			g_installer_completed = 1;
+		}
 		break;
 	case IC_INSTALLER_COMPLETED:
 		wdi_dbg("Installer process completed");
+		InterlockedExchange(&g_installer_completed, 1);
+		g_installer_completed = 1;
 		break;
 	case IC_GET_USER_SID:
 		if (ConvertSidToStringSidA(GetSid(), &sid_str)) {
@@ -1722,6 +1802,9 @@ static int install_driver_internal(void* arglist)
 	char path[MAX_PATH], exename[MAX_PATH], exeargs[MAX_PATH], installer_name[32] = { 0 };
 	char *buffer = NULL, *new_buffer;
 	const char* filter_name = "libusb0";
+	
+	g_installer_completed = 0;
+	g_no_syslog_wait_run = (params->options && params->options->no_syslog_wait) ? TRUE : FALSE;
 
 	MUTEX_START;
 
@@ -1776,6 +1859,9 @@ static int install_driver_internal(void* arglist)
 		r = WDI_ERROR_RESOURCE;
 		goto out;
 	}
+	
+	// WDI_FAST_EXIT: reset completion flag at the start of every run
+	InterlockedExchange((LONG*)&g_installer_completed, 0);
 
 	// Set the overlapped for messaging
 	memset(&overlapped, 0, sizeof(OVERLAPPED));
@@ -1792,6 +1878,10 @@ static int install_driver_internal(void* arglist)
 		// And of course, Windows ARM64 won't let you use an x86 installer either...
 		static_sprintf(installer_name, "installer_%s.exe", get_installer_arch(platform_arch));
 		static_sprintf(exeargs, "\"%s\"", params->inf_name);
+		/* Если вызывающий попросил fast-exit, скажем инсталлятору не запускать syslog */
+		if (params->options && params->options->no_syslog_wait) {
+			static_strcat(exeargs, " --no-syslog");
+		}
 	} else {
 		// Use libusb-win32's filter driver installer
 		static_strcpy(installer_name, "install-filter.exe");
@@ -1899,6 +1989,19 @@ static int install_driver_internal(void* arglist)
 			offset = 0;
 			// Message was read synchronously
 			r = process_message(buffer, rd_count);
+			/* WDI_FAST_EXIT: если включено no_syslog_wait и уже пришёл
+			   IC_INSTALLER_COMPLETED — не ждём «хвост» лога, выходим */
+			if ((r == WDI_SUCCESS)
+				&& (params->options != NULL)
+				&& params->options->no_syslog_wait
+				&& g_installer_completed) {
+				wdi_dbg("Fast-exit(sync): installer completed, finalizing...");
+				if (WaitForSingleObject(handle[1], 1000) == WAIT_TIMEOUT) {
+					TerminateProcess(handle[1], 0);
+				}
+				r = check_completion(handle[1]);
+				goto out;
+			}
 		} else {
 			switch(GetLastError()) {
 			case ERROR_BROKEN_PIPE:
@@ -1914,10 +2017,34 @@ static int install_driver_internal(void* arglist)
 			case ERROR_IO_PENDING:
 				switch(WaitForMultipleObjects(2, handle, FALSE, timeout)) {
 				case WAIT_OBJECT_0: // Pipe event
+					/* WDI_FAST_EXIT: если уже знаем, что установка завершена
+						(по IC_SET_TIMEOUT_DEFAULT/IC_INSTALLER_COMPLETED),
+						не тратим время на дочитку очереди сообщений */
+					if (g_no_syslog_wait_run && g_installer_completed) {
+						wdi_dbg("Fast-exit: completion flagged before pipe read; finalizing...");
+						if (WaitForSingleObject(handle[1], 1000) == WAIT_TIMEOUT) {
+						TerminateProcess(handle[1], 0);
+						}
+						r = check_completion(handle[1]);
+						goto out;
+					}
 					if (GetOverlappedResult(pipe_handle, &overlapped, &rd_count, FALSE)) {
 						// Message was read asynchronously
 						r = process_message(buffer, rd_count);
 						offset = 0;
+						/* WDI_FAST_EXIT: если включено no_syslog_wait и уже пришёл
+						   IC_INSTALLER_COMPLETED — не ждём «хвост» лога, выходим */
+						if ((r == WDI_SUCCESS)
+							&& (params->options != NULL)
+							&& params->options->no_syslog_wait
+							&& g_installer_completed) {
+							wdi_dbg("Fast-exit(async): installer completed, finalizing...");
+							if (WaitForSingleObject(handle[1], 1000) == WAIT_TIMEOUT) {
+								TerminateProcess(handle[1], 0);
+							}
+							r = check_completion(handle[1]);
+							goto out;
+						}
 					} else {
 						switch(GetLastError()) {
 						case ERROR_BROKEN_PIPE:
@@ -1951,7 +2078,17 @@ static int install_driver_internal(void* arglist)
 					r = WDI_ERROR_TIMEOUT; goto out;
 				case WAIT_OBJECT_0+1:
 					// installer process terminated
-					r = check_completion(handle[1]); goto out;
+					r = check_completion(handle[1]);
+					// Optional settle check: poll SPDRP_SERVICE
+					if ((r == WDI_SUCCESS)
+						&& params->options
+						&& params->options->post_install_verify_timeout) {
+						BOOL ok = wait_for_expected_service(params->device_info->device_id,
+															expected_service_from_inf(params->inf_name),
+															params->options->post_install_verify_timeout);
+						if (!ok) wdi_dbg("Post-install service binding not observed within timeout");
+					}
+					goto out;
 				default:
 					wdi_err("Could not read from pipe (wait): %s", wdi_windows_error_str(0));
 					break;

@@ -832,9 +832,17 @@ int __cdecl main(int argc_ansi, char** argv_ansi)
 		plog("unable to access UTF-16 args - trying ANSI");
 	}
 
+	BOOL no_syslog = FALSE;
+	for (i = 1; i < argc; i++) {
+		if (argv[i] && (safe_stricmp(argv[i], "--no-syslog") == 0)) {
+			no_syslog = TRUE;
+		}
+	}
 	if (argc < 2) {
 		printf("usage: %s <inf_name>\n", argv[0]);
 		plog("missing inf_name parameter");
+		ret = WDI_ERROR_INVALID_PARAM;
+		goto out;
 	}
 
 	inf_name = argv[1];
@@ -854,16 +862,21 @@ int __cdecl main(int argc_ansi, char** argv_ansi)
 	user_sid = req_id(IC_GET_USER_SID);
 	ConvertStringSidToSidA(user_sid, &user_psid);
 
-	// Setup the syslog reader thread
+	// Setup the syslog reader thread (если не запрещено флагом)
 	syslog_ready_event = CreateEvent(NULL, TRUE, FALSE, NULL);
 	syslog_terminate_event = CreateEvent(NULL, TRUE, FALSE, NULL);
-	syslog_reader_thid = _beginthread(syslog_reader_thread, 0, 0);
-	if ( (syslog_reader_thid == -1L)
-	  || (WaitForSingleObject(syslog_ready_event, 2000) != WAIT_OBJECT_0) )	{
-		plog("Unable to create syslog reader thread");
-		SetEvent(syslog_terminate_event);
-		// NB: if you try to close the syslog reader thread handle, you get a
-		// "more recent driver was found" error from UpdateForPnP. Weird...
+	if (!no_syslog) {
+		syslog_reader_thid = _beginthread(syslog_reader_thread, 0, 0);
+		if ( (syslog_reader_thid == -1L)
+		  || (WaitForSingleObject(syslog_ready_event, 2000) != WAIT_OBJECT_0) ) {
+			plog("Unable to create syslog reader thread");
+			SetEvent(syslog_terminate_event);
+			// NB: if you try to close the syslog reader thread handle, you get a
+			// "more recent driver was found" error from UpdateForPnP. Weird...
+		}
+	} else {
+		// Без syslog-потока считаем, что он «готов» и не требуется
+		SetEvent(syslog_ready_event);
 	}
 
 	// Disable the creation of a restore point
@@ -911,14 +924,15 @@ int __cdecl main(int argc_ansi, char** argv_ansi)
 	check_removed(hardware_id);
 
 out:
-	// Report any error status code and wait for target app to read it
+	// Stop syslog tailing immediately — we don't block on log anymore
+	SetEvent(syslog_terminate_event);
+	// Small grace to let the thread notice the event (best-effort)
+	Sleep(50);
+	// Tell parent we're done — let it exit right away
 	send_status(IC_INSTALLER_COMPLETED);
 	pstat(ret);
 	// Restore the system restore point creation original settings
 	disable_system_restore(FALSE);
-	// TODO: have libwdi send an ACK?
-	Sleep(1000);
-	SetEvent(syslog_terminate_event);
 	if ((argv != NULL) && (argv != argv_ansi)) {
 		for (i=0; i<argc; i++) {
 			safe_free(argv[i]);
