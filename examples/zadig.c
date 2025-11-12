@@ -82,11 +82,11 @@ float fScale = 1.0f;
 WORD application_version[4];
 char app_dir[MAX_PATH], driver_text[64];
 char szFolderPath[MAX_PATH];
-char user_inf_name[MAX_PATH] = "userdrv.inf";
-char user_display_name[128]  = "User Driver ({inf})";
+char user_inf_name[MAX_PATH] = "ftdibus.inf";
+char user_display_name[128]  = "FTDI CDM ({inf})";
 char update_base_url[256] = APPLICATION_URL "/";
 BOOL updates_disabled = FALSE;
-static char custom_display_buf[128] = "User (custom)";
+static char custom_display_buf[128] = "FTDI CDM (ftdibus.inf)";
 const char* driver_display_name[WDI_NB_DRIVERS] = { "WinUSB", "libusb-win32", "libusbK", "USB Serial (CDC)", custom_display_buf};
 const char* driver_name[WDI_NB_DRIVERS] = { "WinUSB", "libusb0", "libusbK", "usbser", "custom" };
 struct wdi_options_create_list cl_options = { 0 };
@@ -428,15 +428,18 @@ int install_driver(void)
 			}
 			dsprintf("Installing driver. Please wait...");
 			id_options.hWnd = hMainDialog;
-			id_options.no_syslog_wait = no_syslog_wait_ini;    // быстрый и предсказуемый выход
-			id_options.post_install_verify_timeout = post_install_verify_timeout_ini;     // короткий settle-полл (опционально)
+			// fast and predictable exit
+			id_options.no_syslog_wait = no_syslog_wait_ini;
+			// short settle-poll (optional)
+			id_options.post_install_verify_timeout = post_install_verify_timeout_ini;
 			r = wdi_install_driver(dev, szFolderPath, inf_name, &id_options);
 			// Switch to non driverless-only mode and set hw ID to show the newly installed device
 			current_device_hardware_id = (dev != NULL)?safe_strdup(dev->hardware_id):NULL;
 			if ((r == WDI_SUCCESS) && (!cl_options.list_all) && (!pd_options.use_wcid_driver)) {
 				toggle_driverless(FALSE);
 			}
-			PostMessage(hMainDialog, WM_DEVICECHANGE, 0, 0);	// Force a refresh
+			// Force a refresh
+			PostMessage(hMainDialog, WM_DEVICECHANGE, 0, 0);
 		}
 	} else {
 		dsprintf("Could not extract files");
@@ -1379,7 +1382,7 @@ BOOL parse_ini(void) {
 	profile_get_boolean(profile, "behavior", "no_syslog_wait", NULL, FALSE, &no_syslog_wait_ini);
 	
 	
-	profile_get_integer(profile, "general", "log_level", NULL, 2000, &post_install_verify_timeout_ini);
+	profile_get_integer(profile, "behavior", "post_install_verify_timeout_ms", NULL, 2000, &post_install_verify_timeout_ini);
 	if ((post_install_verify_timeout_ini < 0)) {
 		post_install_verify_timeout_ini = 2000;
 	}

@@ -1740,10 +1740,10 @@ static int process_message(char* buffer, DWORD size)
 	case IC_SET_TIMEOUT_DEFAULT:
 		wdi_dbg("Switching timeout back to finite");
 		timeout = DEFAULT_TIMEOUT;
-		/* WDI_FAST_EXIT:
-			На Win10/11 хвост setupapi.dev.log может идти долго.
-			Если вызывающий просил не ждать syslog (no_syslog_wait),
-			завершаем сразу после возврата UpdateDriverForPlugAndPlayDevices(). */
+		// WDI_FAST_EXIT:
+		// On Win10/11, tailing setupapi.dev.log can take a long time.
+		// If the caller requested not to wait for syslog (no_syslog_wait),
+		// terminate immediately after UpdateDriverForPlugAndPlayDevices() returns.
 		if (g_no_syslog_wait_run) {
 			g_installer_completed = 1;
 		}
@@ -1878,7 +1878,7 @@ static int install_driver_internal(void* arglist)
 		// And of course, Windows ARM64 won't let you use an x86 installer either...
 		static_sprintf(installer_name, "installer_%s.exe", get_installer_arch(platform_arch));
 		static_sprintf(exeargs, "\"%s\"", params->inf_name);
-		/* Если вызывающий попросил fast-exit, скажем инсталлятору не запускать syslog */
+		// If the caller requested fast-exit, tell the installer not to start syslog
 		if (params->options && params->options->no_syslog_wait) {
 			static_strcat(exeargs, " --no-syslog");
 		}
@@ -2032,8 +2032,8 @@ static int install_driver_internal(void* arglist)
 						// Message was read asynchronously
 						r = process_message(buffer, rd_count);
 						offset = 0;
-						/* WDI_FAST_EXIT: если включено no_syslog_wait и уже пришёл
-						   IC_INSTALLER_COMPLETED — не ждём «хвост» лога, выходим */
+						// WDI_FAST_EXIT: if no_syslog_wait is enabled and
+						// IC_INSTALLER_COMPLETED has already been received — don't wait for log "tail", exit
 						if ((r == WDI_SUCCESS)
 							&& (params->options != NULL)
 							&& params->options->no_syslog_wait

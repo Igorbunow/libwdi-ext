@@ -531,6 +531,7 @@ static DWORD WINAPI CheckForUpdatesThread(LPVOID param)
 	FILETIME FileTime;
 	int64_t local_time = 0, reg_time, server_time, update_interval;
 
+	(void)archname;
 	update_check_in_progress = TRUE;
 	verbose = ReadRegistryKey32(REGKEY_HKCU, REGKEY_VERBOSE_UPDATES);
 	// Without this the FileDialog will produce error 0x8001010E when compiled for Vista or later

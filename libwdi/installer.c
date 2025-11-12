@@ -862,7 +862,7 @@ int __cdecl main(int argc_ansi, char** argv_ansi)
 	user_sid = req_id(IC_GET_USER_SID);
 	ConvertStringSidToSidA(user_sid, &user_psid);
 
-	// Setup the syslog reader thread (если не запрещено флагом)
+	// Setup the syslog reader thread (if not disabled by flag)
 	syslog_ready_event = CreateEvent(NULL, TRUE, FALSE, NULL);
 	syslog_terminate_event = CreateEvent(NULL, TRUE, FALSE, NULL);
 	if (!no_syslog) {
@@ -875,7 +875,7 @@ int __cdecl main(int argc_ansi, char** argv_ansi)
 			// "more recent driver was found" error from UpdateForPnP. Weird...
 		}
 	} else {
-		// Без syslog-потока считаем, что он «готов» и не требуется
+		// Without syslog thread, consider it "ready" and not required
 		SetEvent(syslog_ready_event);
 	}
 
