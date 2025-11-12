@@ -116,8 +116,11 @@ BOOL use_arrow_icons = FALSE;
 BOOL exit_on_success = FALSE;
 BOOL no_syslog_wait_ini = FALSE;
 BOOL cleanup_oem_inf_ini = TRUE;
-BOOL show_winusb_ini = TRUE;
-BOOL show_cdc_ini = FALSE;
+BOOL show_winusb_ini  = TRUE;
+BOOL show_libusb0_ini = FALSE;
+BOOL show_libusbk_ini = FALSE;
+BOOL show_cdc_ini     = FALSE;
+BOOL show_user_ini    = TRUE;
 enum wcid_state has_wcid = WCID_NONE;
 int wcid_type = WDI_USER;
 int post_install_verify_timeout_ini = 2000;
@@ -517,14 +520,23 @@ void set_default_driver(void) {
 	int i;
 
 	// Treat hidden drivers as unavailable defaults
-	if ((!show_winusb_ini && (default_driver_type == WDI_WINUSB))
-		|| (!show_cdc_ini && (default_driver_type == WDI_CDC))
+	if ((!show_winusb_ini  && (default_driver_type == WDI_WINUSB))
+		|| (!show_libusb0_ini && (default_driver_type == WDI_LIBUSB0))
+		|| (!show_libusbk_ini && (default_driver_type == WDI_LIBUSBK))
+		|| (!show_cdc_ini     && (default_driver_type == WDI_CDC))
+		|| (!show_user_ini    && (default_driver_type == WDI_USER))
 		|| !wdi_is_driver_supported(default_driver_type, NULL)) {
 		dprintf("'%s' driver is not available or hidden", driver_display_name[default_driver_type]);
 		for (i=0; i<WDI_NB_DRIVERS; i++) {
-			if (!show_winusb_ini && (i == WDI_WINUSB))
+			if (!show_winusb_ini  && (i == WDI_WINUSB))
 				continue;
-			if (!show_cdc_ini && (i == WDI_CDC))
+			if (!show_libusb0_ini && (i == WDI_LIBUSB0))
+				continue;
+			if (!show_libusbk_ini && (i == WDI_LIBUSBK))
+				continue;
+			if (!show_cdc_ini     && (i == WDI_CDC))
+				continue;
+			if (!show_user_ini    && (i == WDI_USER))
 				continue;
 			if (wdi_is_driver_supported(i, NULL)) {
 				default_driver_type = i;
@@ -585,9 +597,15 @@ BOOL select_next_driver(int increment)
 		pd_options.driver_type = (WDI_NB_DRIVERS + pd_options.driver_type + increment)%WDI_NB_DRIVERS;
 
 		// Apply driver visibility rules from ini
-		if (!show_winusb_ini && (pd_options.driver_type == WDI_WINUSB))
+		if (!show_winusb_ini  && (pd_options.driver_type == WDI_WINUSB))
 			continue;
-		if (!show_cdc_ini && (pd_options.driver_type == WDI_CDC))
+		if (!show_libusb0_ini && (pd_options.driver_type == WDI_LIBUSB0))
+			continue;
+		if (!show_libusbk_ini && (pd_options.driver_type == WDI_LIBUSBK))
+			continue;
+		if (!show_cdc_ini     && (pd_options.driver_type == WDI_CDC))
+			continue;
+		if (!show_user_ini    && (pd_options.driver_type == WDI_USER))
 			continue;
 		if (wdi_is_driver_supported(pd_options.driver_type, NULL))
 			break;
@@ -1404,8 +1422,11 @@ BOOL parse_ini(void) {
 	profile_get_boolean(profile, "behavior", "cleanup_oem_inf", NULL, TRUE, &cleanup_oem_inf_ini);
 	
 	// Driver list visibility
-	profile_get_boolean(profile, "behavior", "show_winusb", NULL, TRUE, &show_winusb_ini);
-	profile_get_boolean(profile, "behavior", "show_cdc", NULL, FALSE, &show_cdc_ini);
+	profile_get_boolean(profile, "behavior", "show_winusb",  NULL, TRUE,  &show_winusb_ini);
+	profile_get_boolean(profile, "behavior", "show_libusb0", NULL, FALSE,  &show_libusb0_ini);
+	profile_get_boolean(profile, "behavior", "show_libusbk", NULL, FALSE,  &show_libusbk_ini);
+	profile_get_boolean(profile, "behavior", "show_cdc",     NULL, FALSE, &show_cdc_ini);
+	profile_get_boolean(profile, "behavior", "show_user",    NULL, TRUE,  &show_user_ini);
 	
 	profile_get_integer(profile, "behavior", "post_install_verify_timeout_ms", NULL, 2000, &post_install_verify_timeout_ini);
 	if ((post_install_verify_timeout_ini < 0)) {
@@ -1479,6 +1500,17 @@ BOOL parse_ini(void) {
 		dprintf("invalid value '%d' for ini option 'default_driver'", default_driver_type);
 		default_driver_type = WDI_WINUSB;
 	}
+	
+	// Log driver visibility configuration from zadig.ini
+	dprintf(
+		"Driver visibility: WinUSB=%s, libusb0=%s, libusbK=%s, CDC=%s, USER=%s",
+		show_winusb_ini  ? "on" : "off",
+		show_libusb0_ini ? "on" : "off",
+		show_libusbk_ini ? "on" : "off",
+		show_cdc_ini     ? "on" : "off",
+		show_user_ini    ? "on" : "off"
+	);
+	
 
 	profile_close(profile);
 
@@ -1962,9 +1994,13 @@ INT_PTR CALLBACK main_callback(HWND hDlg, UINT message, WPARAM wParam, LPARAM lP
 							for (i=WDI_WINUSB; i<WDI_USER; i++) {
 								if (i != wcid_type)
 									continue;
-								if (!show_winusb_ini && (i == WDI_WINUSB))
+								if (!show_winusb_ini  && (i == WDI_WINUSB))
 									continue;
-								if (!show_cdc_ini && (i == WDI_CDC))
+								if (!show_libusb0_ini && (i == WDI_LIBUSB0))
+									continue;
+								if (!show_libusbk_ini && (i == WDI_LIBUSBK))
+									continue;
+								if (!show_cdc_ini     && (i == WDI_CDC))
 									continue;
 								if (wdi_is_driver_supported(i, NULL))
 									break;
