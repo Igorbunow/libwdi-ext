@@ -34,6 +34,96 @@
 #include "libwdi.h"
 #include "msapi_utf8.h"
 
+
+// Forward declaration for logging
+void plog(const char *format, ...);
+
+// Remove previously installed OEM driver packages that were created
+// from the same original INF name. This prevents the Windows driver
+// store from accumulating multiple libwdi-generated packages when
+// repeatedly switching drivers for the same device.
+static void cleanup_oem_infs_for_original(const char* original_name)
+{
+	char windir[MAX_PATH];
+	char search[MAX_PATH];
+	WIN32_FIND_DATAA fd;
+	HANDLE hFind;
+	
+	if ((original_name == NULL) || (original_name[0] == 0))
+		return;
+	
+	if (!GetWindowsDirectoryA(windir, sizeof(windir)))
+		return;
+	
+	safe_strcpy(search, sizeof(search), windir);
+	safe_strcat(search, sizeof(search), "\\Inf\\oem*.inf");
+	
+	hFind = FindFirstFileA(search, &fd);
+	if (hFind == INVALID_HANDLE_VALUE)
+		return;
+	
+	do {
+		char inf_path[MAX_PATH];
+		DWORD size = 0;
+		PSP_INF_INFORMATION inf_info = NULL;
+		SP_ORIGINAL_FILE_INFO_A orig;
+		HINF hInf;
+	
+		if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+			continue;
+	
+		safe_strcpy(inf_path, sizeof(inf_path), windir);
+		safe_strcat(inf_path, sizeof(inf_path), "\\Inf\\");
+		safe_strcat(inf_path, sizeof(inf_path), fd.cFileName);
+	
+		// Open INF and query information using HINF, because MinGW
+		// does not expose INFINFO_INF_SPEC_IS_FILENAME.
+		hInf = SetupOpenInfFileA(inf_path, NULL, INF_STYLE_WIN4, NULL);
+		if (hInf == INVALID_HANDLE_VALUE)
+			continue;
+	
+		if (!SetupGetInfInformationA((PVOID)hInf, INFINFO_INF_SPEC_IS_HINF,
+									 NULL, 0, &size) || (size == 0)) {
+			SetupCloseInfFile(hInf);
+			continue;
+		}
+	
+		inf_info = (PSP_INF_INFORMATION)malloc(size);
+		if (inf_info == NULL) {
+			SetupCloseInfFile(hInf);
+			continue;
+		}
+	
+		if (!SetupGetInfInformationA((PVOID)hInf, INFINFO_INF_SPEC_IS_HINF,
+									 inf_info, size, &size)) {
+			free(inf_info);
+			SetupCloseInfFile(hInf);
+			continue;
+		}
+	
+		SetupCloseInfFile(hInf);
+	
+		ZeroMemory(&orig, sizeof(orig));
+		orig.cbSize = sizeof(orig);
+	
+		if (SetupQueryInfOriginalFileInformationA(inf_info, 0, NULL, &orig)) {
+			if (_stricmp(orig.OriginalInfName, original_name) == 0) {
+				plog("removing previous OEM INF '%s' (OriginalInfName='%s')",
+					 fd.cFileName, orig.OriginalInfName);
+				if (!SetupUninstallOEMInfA(fd.cFileName, SUOI_FORCEDELETE, NULL)) {
+					DWORD err = GetLastError();
+					plog("SetupUninstallOEMInfA('%s') failed: %u",
+						 fd.cFileName, (unsigned int)err);
+				}
+			}
+		}
+	
+		free(inf_info);
+	} while (FindNextFileA(hFind, &fd));
+	
+	FindClose(hFind);
+}
+
 // DDK complains about checking a const string against NULL...
 #if defined(DDKBUILD)
 #pragma warning(disable:4130)
@@ -845,8 +935,14 @@ int __cdecl main(int argc_ansi, char** argv_ansi)
 		goto out;
 	}
 
-	inf_name = argv[1];
-	plog("got parameter %s", argv[1]);
+   inf_name = argv[1];
+   plog("got parameter %s", argv[1]);
+
+	// Before installing a new package, remove any previous libwdi
+	// OEM packages that were created from the same original INF
+	// name, to avoid accumulating oem*.inf entries for the same
+	// device/driver combination.
+	cleanup_oem_infs_for_original(inf_name);
 	r = GetFullPathNameU(".", MAX_PATH_LENGTH, path, NULL);
 	if ((r == 0) || (r > MAX_PATH_LENGTH)) {
 		plog("could not retrieve absolute path of working directory");
