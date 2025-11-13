@@ -143,6 +143,8 @@ struct vidpid_pair filter_vidpids[MAX_DEVICE_FILTER_VALUES];
 int filter_vidpids_count = 0;
 unsigned char filter_mis[MAX_DEVICE_FILTER_VALUES];
 int filter_mis_count = 0;
+BOOL filter_driver_present = FALSE;
+char filter_driver_list[256];
 
 EXT_DECL(log_ext, "Zadig.log", __VA_GROUP__("*.log"), __VA_GROUP__("Zadig log"));
 EXT_DECL(cfg_ext, "sample.cfg", __VA_GROUP__("*.cfg"), __VA_GROUP__("Zadig device config"));
@@ -173,6 +175,8 @@ static void reset_device_filter(void)
     filter_pids_count = 0;
     filter_vidpids_count = 0;
     filter_mis_count = 0;
+    filter_driver_present = FALSE;
+    filter_driver_list[0] = '\0';
 
     for (i = 0; i < MAX_DEVICE_FILTER_VALUES; i++) {
         filter_vids[i] = 0;
@@ -313,6 +317,59 @@ static void parse_filter_vidpid_list(char* s)
     }
 }
 
+static int count_filter_tokens(const char* s)
+{
+    int count = 0;
+    char buf[256];
+    char* token;
+
+    if ((s == NULL) || (s[0] == '\0'))
+        return 0;
+
+    safe_strcpy(buf, sizeof(buf), s);
+    token = strtok(buf, ",");
+    while (token != NULL) {
+        while (isspace((unsigned char)*token)) {
+            token++;
+        }
+        if (*token != '\0') {
+            count++;
+        }
+        token = strtok(NULL, ",");
+    }
+    return count;
+}
+
+static BOOL device_driver_matches(const struct wdi_device_info* dev)
+{
+    char buf[256];
+    char* token;
+
+    if (!filter_driver_present) {
+        return TRUE;
+    }
+
+    if ((dev->driver == NULL) || (dev->driver[0] == '\0')) {
+        return FALSE;
+    }
+
+    safe_strcpy(buf, sizeof(buf), filter_driver_list);
+    token = strtok(buf, ",");
+    while (token != NULL) {
+        while (isspace((unsigned char)*token)) {
+            token++;
+        }
+        if (*token != '\0') {
+            if (_stricmp(token, dev->driver) == 0) {
+                return TRUE;
+            }
+        }
+        token = strtok(NULL, ",");
+    }
+
+    return FALSE;
+}
+
 static BOOL device_matches_filter(const struct wdi_device_info* dev)
 {
     int i;
@@ -341,12 +398,20 @@ static BOOL device_matches_filter(const struct wdi_device_info* dev)
         if (filter_mis_count > 0) {
             for (i = 0; i < filter_mis_count; i++) {
                 if (dev->mi == filter_mis[i]) {
+                    // VID:PID and MI matched, now apply optional driver filter
+                    if (!device_driver_matches(dev)) {
+                        return FALSE;
+                    }
                     return TRUE;
                 }
             }
             return FALSE;
         }
 
+        // VID:PID matched, no MI constraint -> apply optional driver filter
+        if (!device_driver_matches(dev)) {
+            return FALSE;
+        }
         return TRUE;
     }
 
@@ -376,9 +441,20 @@ static BOOL device_matches_filter(const struct wdi_device_info* dev)
     if (filter_mis_count > 0) {
         for (i = 0; i < filter_mis_count; i++) {
             if (dev->mi == filter_mis[i]) {
+                // VID/PID/MI matched (depending on which filters are active)
+                // now apply optional driver filter
+                if (!device_driver_matches(dev)) {
+                    return FALSE;
+                }
                 return TRUE;
             }
         }
+        return FALSE;
+    }
+
+    // No MI constraint, but VID/PID conditions are satisfied (or absent),
+    // apply optional driver filter.
+    if (!device_driver_matches(dev)) {
         return FALSE;
     }
 
@@ -1698,11 +1774,22 @@ BOOL parse_ini(void) {
 		safe_free(tmp);
 	}
 
+	tmp = NULL;
+	if (profile_get_string(profile, "device", "filter_driver", NULL, NULL, &tmp) == 0 && (tmp != NULL)) {
+		if (tmp[0] != '\0') {
+			safe_strcpy(filter_driver_list, sizeof(filter_driver_list), tmp);
+			filter_driver_present = TRUE;
+		}
+		safe_free(tmp);
+	}
+
+	int driver_filter_count = count_filter_tokens(filter_driver_list);
 	if ((filter_vids_count > 0) || (filter_pids_count > 0) ||
-	    (filter_mis_count > 0) || (filter_vidpids_count > 0)) {
+	    (filter_mis_count > 0) || (filter_vidpids_count > 0) ||
+	    filter_driver_present) {
 		device_filter_enabled = TRUE;
-		dprintf("Device filter enabled: VIDs=%d, PIDs=%d, MI=%d, VID/PID pairs=%d",
-			filter_vids_count, filter_pids_count, filter_mis_count, filter_vidpids_count);
+		dprintf("Device filter enabled: VIDs=%d, PIDs=%d, MI=%d, VID/PID pairs=%d, Drivers=%d",
+			filter_vids_count, filter_pids_count, filter_mis_count, filter_vidpids_count, driver_filter_count);
 	}
 	
 	// Driver list visibility
