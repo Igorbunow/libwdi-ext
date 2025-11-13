@@ -1,136 +1,113 @@
-# libwdi-ext — Extended libwdi fork
+# libwdi-ext — Extended libwdi fork for professional driver deployment
 
-**libwdi-ext** is an enhanced, production-focused fork of  
-[pbatard/libwdi](https://github.com/pbatard/libwdi) with additional features
-designed for embedded applications, automated driver deployment, and large-scale
-device provisioning.
+**libwdi-ext** is a feature-enhanced fork of  
+[pbatard/libwdi](https://github.com/pbatard/libwdi)  
+designed for embedded systems, OEM tools, automated provisioning, and advanced driver workflow scenarios.
 
-This fork remains fully compatible with the original libwdi API, while adding
-optional advanced behavior useful for OEMs, integrators, and system tools.
+The fork remains API-compatible with upstream while extending behavior where Windows driver installation is traditionally problematic.
 
 ---
 
-## Key Extensions
+## ⭐ Highlights
 
-### ✔ External INF driver installation (WDI_USER external mode)
-Allows installing any vendor-supplied driver (FTDI, ST, custom USB class, etc.)
-without bundling proprietary drivers into your application.
+### ✔ External INF installation (legal-safe)
+Install official FTDI/ST/other vendor drivers **without bundling them**:
 
-### ✔ OEM INF cleanup (no more driver-store pollution)
-Eliminates Windows creating many duplicate `oemXX.inf` entries over time.
-Triggered via:
+- Direct `wdi_install_driver()`
+- No need for `--with-userdir`
+- Supports full driver directories (INF+SYS+CAT)
+
+### ✔ OEM driver-store cleanup (no more `oemXX.inf` pollution)
+Prevents Windows accumulating hundreds of stale driver entries.
+
+Enabled via:
 
 ```c
 SetEnvironmentVariableA("WDI_CLEANUP_OEM_INF", "1");
 ````
 
-### ✔ Fast driver installation on Windows 10/11
-
-Added install options:
+### ✔ Fast installer mode (no 30–60s delay on Win10/11)
 
 ```c
-id_options.no_syslog_wait = 1;             // disables slow eventlog tailing
-id_options.post_install_verify_timeout = N; // short predictable re-enumeration timeout
+id_options.no_syslog_wait = 1;
+id_options.post_install_verify_timeout = 3000..5000;
 ```
 
-Prevents the typical 30–60s delays after switching drivers.
+### ✔ Extended Zadig features
 
-### ✔ Device filtering (VID/PID, VID/PID pairs, interface number, driver name)
+* External INF selection & auto-detection
+* Recursive INF search
+* Status bar INF indication
+* VID/PID/MI/driver-name filtering
+* Driver visibility toggles
+* Clean, deterministic installation cycle
 
-The Zadig example is extended with highly precise device visibility filtering:
+### ✔ Fully backwards compatible
 
-* `[device] vid = …`
-* `[device] pid = …`
-* `[device] vid_pid = …`
-* `[device] mi = …`
-* `[device] driver = …`
+All original libwdi APIs continue to work.
 
-### ✔ Driver visibility controls
+---
 
-Zadig can hide/show drivers like:
+## 📘 Documentation
 
-* WinUSB
-* libusb-win32
-* libusbK
-* CDC
-* USER
-* External USER driver
-
-### ✔ External driver selection UI (Zadig)
-
-Includes:
-
-* Recursive INF search under configured path
-* File-open dialog to pick INF
-* Status-bar indication of selected INF
-* Recommendation to store external INF path in ini
-
-### ✔ Full documentation for embedding
-
-See:
+Full embedding guide:
 
 ➡ **[docs/EMBEDDING_LIBWDI_EXTERNAL_INF.md](docs/EMBEDDING_LIBWDI_EXTERNAL_INF.md)**
-Complete examples for WinUSB, libusb, CDC, USER(builtin), USER(external).
+
+Includes examples for:
+
+* WinUSB
+* libusbK
+* libusb-win32
+* CDC
+* USER(builtin)
+* USER(external)
 
 ---
 
-## Compatibility
+## 🚀 Getting Started
 
-* Fully API compatible with original **libwdi ≥ 1.4**
-* Works on:
-
-  * Windows 7
-  * Windows 8
-  * Windows 10
-  * Windows 11 (including IoT Enterprise S)
-* Tested with FTDI FT2232H, custom WCID devices, CDC, libusb stacks.
-
----
-
-## Building
-
-Same as upstream:
+Build same as upstream:
 
 ```
-./configure --with-wdf <...> [--with-userdir PATH]
+./configure --with-wdf ...
 make
 ```
 
-`--with-userdir` is optional; external INF mode does not require it.
+`--with-userdir` is optional.
 
 ---
 
-## Licensing
+## 📄 Changelog
 
-The fork retains the **GPLv3** license from the upstream repository.
-Redistribution of third-party drivers (e.g. FTDI, ST, Prolific, etc.)
-must follow their licensing terms — therefore `libwdi-ext` provides
-a legal-compliant **external INF mode** instead of bundling them.
+* **[CHANGELOG.md](CHANGELOG.md)** – libwdi extensions
+* **[CHANGELOG_ZADIG.md](CHANGELOG_ZADIG.md)** – GUI improvements
 
 ---
 
-## Upstream Project
+## ❤️ Acknowledgements
 
-This fork is based on the excellent work by:
+Based on the outstanding upstream work of Pete Batard:
 
-➡ [https://github.com/pbatard/libwdi](https://github.com/pbatard/libwdi)
-
-All foundational documentation, WCID notes, and driver stack guidance remain valid.
+[https://github.com/pbatard/libwdi](https://github.com/pbatard/libwdi)
 
 ---
 
-## Changelog
+## 📜 License
 
-See:
+This project remains under **GPLv3**, inherited from upstream libwdi.
 
-* **CHANGELOG.md** — libwdi core changes
-* **CHANGELOG_ZADIG.md** — Zadig example changes
+Redistribution of *third-party proprietary drivers* is not allowed —
+use **External INF mode** instead.
 
 ---
 
-## Status
+## 🤝 Contributing
 
-`libwdi-ext` is actively maintained and continuously tested on multi-interface
-USB devices under Windows 7, 10, 11.
+See **CONTRIBUTING.md**
 
-PRs are welcome.
+---
+
+## 🔐 Security Policy
+
+See **SECURITY.md**

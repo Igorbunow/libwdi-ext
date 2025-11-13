@@ -19,6 +19,9 @@
 ### Improved
 - More predictable driver re-enumeration timing.
 - Better error reporting for missing external INF.
+- Stability on Windows 10/11
+- Clean installer teardown
+- Error reporting for missing external INF
 
 ### Documentation
 - Added `docs/EMBEDDING_LIBWDI_EXTERNAL_INF.md` with complete integration examples.
