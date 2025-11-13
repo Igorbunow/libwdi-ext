@@ -93,6 +93,7 @@
 #define IDM_SPLIT_WCID                  40020
 #define IDM_SPLIT_FILTER                40021
 #define IDM_SPLIT_EXTRACT               40022
+#define IDM_SELECT_EXTERNAL_INF         40090
 
 // Next default values for new objects
 // 

@@ -343,6 +343,72 @@ static int count_filter_tokens(const char* s)
 	return count;
 }
 
+// Show a Windows file selection dialog to choose an external INF.
+// On success, updates external_inf_path and user_inf_name and shows a hint
+// to update the INI file. Returns TRUE on success, FALSE on cancel/error.
+static BOOL select_external_inf_via_dialog(void)
+{
+	OPENFILENAMEA ofn;
+	char file_buf[MAX_PATH] = {0};
+	char initial_dir[MAX_PATH];
+	
+	ZeroMemory(&ofn, sizeof(ofn));
+	ofn.lStructSize = sizeof(ofn);
+	ofn.hwndOwner = hMainDialog;
+	ofn.lpstrFilter = "INF files (*.inf)\0*.inf\0All files (*.*)\0*.*\0\0";
+	ofn.lpstrFile = file_buf;
+	ofn.nMaxFile = sizeof(file_buf);
+	
+	if (external_inf_path[0] != '\0') {
+		safe_strcpy(initial_dir, sizeof(initial_dir), external_inf_path);
+	} else {
+		safe_strcpy(initial_dir, sizeof(initial_dir), app_dir);
+	}
+	ofn.lpstrInitialDir = initial_dir;
+	ofn.lpstrTitle = "Select external INF file";
+	ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_EXPLORER;
+	
+	if (!GetOpenFileNameA(&ofn)) {
+		dprintf("External INF selection dialog was cancelled");
+		return FALSE;
+	}
+	
+	// Split selected path into directory + filename
+	{
+		const char* full = file_buf;
+		const char* last_bslash = strrchr(full, '\\');
+		const char* last_fslash = strrchr(full, '/');
+		const char* last = (last_fslash > last_bslash) ? last_fslash : last_bslash;
+	
+		if (last != NULL) {
+			size_t dir_len = (size_t)(last - full);
+			if (dir_len >= sizeof(external_inf_path)) {
+				dir_len = sizeof(external_inf_path) - 1;
+			}
+			memcpy(external_inf_path, full, dir_len);
+			external_inf_path[dir_len] = '\0';
+			safe_strcpy(user_inf_name, sizeof(user_inf_name), last + 1);
+		} else {
+			// No path separator - unlikely, but handle it
+			safe_strcpy(external_inf_path, sizeof(external_inf_path), ".");
+			safe_strcpy(user_inf_name, sizeof(user_inf_name), full);
+		}
+	}
+	
+	dprintf("External INF selected via dialog: path='%s', inf='%s'",
+		external_inf_path, user_inf_name);
+	
+	MessageBoxA(hMainDialog,
+		"An external INF has been selected.\n\n"
+		"Please update the [external_inf] section in your INI file\n"
+		"to persist this configuration on next run.",
+		"External INF selected",
+		MB_OK | MB_ICONINFORMATION);
+	
+	return TRUE;
+}
+
+
 // Helper: recursively search for a given INF filename under a root directory.
 // On success, stores the full path into out_full_path and returns TRUE.
 static BOOL find_inf_recursive(const char* root, const char* filename, char* out_full_path, size_t out_size)
@@ -869,73 +935,21 @@ int install_driver(void)
 					dprintf("External INF found in subdirectory: '%s'", external_full_inf);
 				} else {
 					// 2) Ask the user to select an INF file via standard Windows dialog
-					OPENFILENAMEA ofn;
-					char file_buf[MAX_PATH] = {0};
-					char initial_dir[MAX_PATH];
-			
-					ZeroMemory(&ofn, sizeof(ofn));
-					ofn.lStructSize = sizeof(ofn);
-					ofn.hwndOwner = hMainDialog;
-					ofn.lpstrFilter = "INF files (*.inf)\0*.inf\0All files (*.*)\0*.*\0\0";
-					ofn.lpstrFile = file_buf;
-					ofn.nMaxFile = sizeof(file_buf);
-			
-					if (external_inf_path[0] != '\0') {
-						safe_strcpy(initial_dir, sizeof(initial_dir), external_inf_path);
-					} else {
-						safe_strcpy(initial_dir, sizeof(initial_dir), app_dir);
-					}
-					ofn.lpstrInitialDir = initial_dir;
-					ofn.lpstrTitle = "Select external INF file";
-					ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_EXPLORER;
-			
-					if (!GetOpenFileNameA(&ofn)) {
-						dprintf("External INF selection dialog was cancelled");
-						MessageBoxA(hMainDialog,
-							"External INF selection was cancelled.\n\n"
-							"Installation aborted.",
-							"External INF error",
-							MB_OK | MB_ICONERROR);
-						r = WDI_ERROR_NOT_FOUND;
-						goto out;
-					}
-			
-					// Split selected path into directory + filename
-					{
-						const char* full = file_buf;
-						const char* last_bslash = strrchr(full, '\\');
-						const char* last_fslash = strrchr(full, '/');
-						const char* last = (last_fslash > last_bslash) ? last_fslash : last_bslash;
-			
-						if (last != NULL) {
-							size_t dir_len = (size_t)(last - full);
-							if (dir_len >= sizeof(external_inf_path)) {
-								dir_len = sizeof(external_inf_path) - 1;
-							}
-							memcpy(external_inf_path, full, dir_len);
-							external_inf_path[dir_len] = '\0';
-							safe_strcpy(user_inf_name, sizeof(user_inf_name), last + 1);
-						} else {
-							// No path separator - unlikely, but handle it
-							safe_strcpy(external_inf_path, sizeof(external_inf_path), ".");
-							safe_strcpy(user_inf_name, sizeof(user_inf_name), full);
+					if (!select_external_inf_via_dialog()) {
+							MessageBoxA(hMainDialog,
+								"External INF selection was cancelled or failed.\n\n"
+								"Installation aborted.",
+								"External INF error",
+								MB_OK | MB_ICONERROR);
+							r = WDI_ERROR_NOT_FOUND;
+							goto out;
 						}
-			
+					
+						// external_inf_path and user_inf_name have been updated by
+						// select_external_inf_via_dialog().
 						_snprintf(external_full_inf, sizeof(external_full_inf),
 								  "%s\\%s", external_inf_path, user_inf_name);
 					}
-			
-					dprintf("External INF selected via dialog: path='%s', inf='%s'",
-							external_inf_path, user_inf_name);
-			
-					MessageBoxA(hMainDialog,
-						"An external INF has been selected.\n\n"
-						"Please update the [external_inf] section in your INI file\n"
-						"to persist this configuration on next run.",
-						"External INF selected",
-						MB_OK | MB_ICONINFORMATION);
-				}
-			
 				// Final existence check after recursive search / dialog
 				inf_attr = GetFileAttributesA(external_full_inf);
 				if (inf_attr == INVALID_FILE_ATTRIBUTES ||
@@ -2071,7 +2085,12 @@ BOOL parse_ini(void) {
 	profile_get_boolean(profile, "external_inf", "enabled", NULL, FALSE, &external_inf_enabled);
 	
 	if (external_inf_enabled && (external_inf_path[0] != '\0')) {
-		dprintf("External INF enabled: path='%s', inf='%s'", external_inf_path, user_inf_name);
+		dprintf("External INF configured: enabled=on, path='%s', inf='%s'",
+			external_inf_path, user_inf_name);
+	} else if (external_inf_enabled && (external_inf_path[0] == '\0')) {
+		dprintf("External INF: enabled in ini but path is empty");
+	} else {
+		dprintf("External INF: disabled");
 	}
 	
 	
@@ -2752,6 +2771,20 @@ INT_PTR CALLBACK main_callback(HWND hDlg, UINT message, WPARAM wParam, LPARAM lP
 		case IDM_SIGNCAT:
 			pd_options.disable_signing = GetMenuState(hMenuOptions, IDM_SIGNCAT, MF_CHECKED) & MF_CHECKED;
 			CheckMenuItem(hMenuOptions, IDM_SIGNCAT, pd_options.disable_signing?MF_UNCHECKED:MF_CHECKED);
+			break;
+		case IDM_SELECT_EXTERNAL_INF:
+			if (!select_external_inf_via_dialog()) {
+				MessageBoxA(hMainDialog,
+					"External INF selection was cancelled or failed.\n"
+					"No changes were applied.",
+					"External INF",
+					MB_OK | MB_ICONINFORMATION);
+			} else {
+				// External INF path and filename have been updated in memory.
+				// If desired, we could also refresh the driver list or status bar here.
+				dprintf("External INF configured from menu: path='%s', inf='%s'",
+					external_inf_path, user_inf_name);
+			}
 			break;
 		case IDM_LOGLEVEL_ERROR:
 		case IDM_LOGLEVEL_WARNING:
