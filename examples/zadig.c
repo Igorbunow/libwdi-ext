@@ -36,6 +36,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 #include <stdint.h>
 #include <objbase.h>
 #include <process.h>
@@ -125,6 +126,22 @@ enum wcid_state has_wcid = WCID_NONE;
 int wcid_type = WDI_USER;
 int post_install_verify_timeout_ini = 2000;
 UINT64 target_driver_version = 0;
+
+#define MAX_DEVICE_FILTER_VALUES 16
+
+struct vidpid_pair {
+    unsigned short vid;
+    unsigned short pid;
+};
+
+BOOL device_filter_enabled = FALSE;
+unsigned short filter_vids[MAX_DEVICE_FILTER_VALUES];
+int filter_vids_count = 0;
+unsigned short filter_pids[MAX_DEVICE_FILTER_VALUES];
+int filter_pids_count = 0;
+struct vidpid_pair filter_vidpids[MAX_DEVICE_FILTER_VALUES];
+int filter_vidpids_count = 0;
+
 EXT_DECL(log_ext, "Zadig.log", __VA_GROUP__("*.log"), __VA_GROUP__("Zadig log"));
 EXT_DECL(cfg_ext, "sample.cfg", __VA_GROUP__("*.cfg"), __VA_GROUP__("Zadig device config"));
 
@@ -144,6 +161,164 @@ static void update_custom_display_name(void)
         safe_strcat(custom_display_buf, sizeof(custom_display_buf), p + 5 /* strlen("{inf}") */);
     }
     driver_display_name[WDI_NB_DRIVERS-1] = custom_display_buf;
+}
+
+static void reset_device_filter(void)
+{
+    int i;
+    device_filter_enabled = FALSE;
+    filter_vids_count = 0;
+    filter_pids_count = 0;
+    filter_vidpids_count = 0;
+
+    for (i = 0; i < MAX_DEVICE_FILTER_VALUES; i++) {
+        filter_vids[i] = 0;
+        filter_pids[i] = 0;
+        filter_vidpids[i].vid = 0;
+        filter_vidpids[i].pid = 0;
+    }
+}
+
+static int parse_hex_ushort_token(const char* token, unsigned short* value)
+{
+    char* endptr;
+    unsigned long v;
+
+    if ((token == NULL) || (token[0] == '\0'))
+        return 0;
+
+    while (isspace((unsigned char)*token)) {
+        token++;
+    }
+    if ((token[0] == '0') && ((token[1] == 'x') || (token[1] == 'X'))) {
+        token += 2;
+    }
+
+    v = strtoul(token, &endptr, 16);
+    while ((endptr != NULL) && (*endptr != '\0') && isspace((unsigned char)*endptr)) {
+        endptr++;
+    }
+    if ((endptr == NULL) || (*endptr != '\0')) {
+        return 0;
+    }
+    if (v > 0xFFFF) {
+        return 0;
+    }
+
+    *value = (unsigned short)v;
+    return 1;
+}
+
+static void parse_filter_vid_list(char* s)
+{
+    char* token;
+
+    if ((s == NULL) || (s[0] == '\0'))
+        return;
+
+    token = strtok(s, ",");
+    while ((token != NULL) && (filter_vids_count < MAX_DEVICE_FILTER_VALUES)) {
+        unsigned short vid;
+        if (parse_hex_ushort_token(token, &vid)) {
+            filter_vids[filter_vids_count++] = vid;
+        } else {
+            dprintf("invalid VID value '%s' in device filter", token);
+        }
+        token = strtok(NULL, ",");
+    }
+}
+
+static void parse_filter_pid_list(char* s)
+{
+    char* token;
+
+    if ((s == NULL) || (s[0] == '\0'))
+        return;
+
+    token = strtok(s, ",");
+    while ((token != NULL) && (filter_pids_count < MAX_DEVICE_FILTER_VALUES)) {
+        unsigned short pid;
+        if (parse_hex_ushort_token(token, &pid)) {
+            filter_pids[filter_pids_count++] = pid;
+        } else {
+            dprintf("invalid PID value '%s' in device filter", token);
+        }
+        token = strtok(NULL, ",");
+    }
+}
+
+static void parse_filter_vidpid_list(char* s)
+{
+    char* token;
+
+    if ((s == NULL) || (s[0] == '\0'))
+        return;
+
+    token = strtok(s, ",");
+    while ((token != NULL) && (filter_vidpids_count < MAX_DEVICE_FILTER_VALUES)) {
+        char* sep = strchr(token, ':');
+        unsigned short vid, pid;
+
+        if (sep == NULL) {
+            dprintf("invalid VID:PID entry '%s' (missing ':') in device filter", token);
+        } else {
+            *sep = '\0';
+            if (parse_hex_ushort_token(token, &vid) && parse_hex_ushort_token(sep + 1, &pid)) {
+                filter_vidpids[filter_vidpids_count].vid = vid;
+                filter_vidpids[filter_vidpids_count].pid = pid;
+                filter_vidpids_count++;
+            } else {
+                dprintf("invalid VID:PID entry '%s' in device filter", token);
+            }
+        }
+
+        token = strtok(NULL, ",");
+    }
+}
+
+static BOOL device_matches_filter(const struct wdi_device_info* dev)
+{
+    int i;
+
+    if (!device_filter_enabled || (dev == NULL)) {
+        return TRUE;
+    }
+
+    // If specific VID:PID pairs are defined, they take precedence
+    if (filter_vidpids_count > 0) {
+        for (i = 0; i < filter_vidpids_count; i++) {
+            if ((dev->vid == filter_vidpids[i].vid) &&
+                (dev->pid == filter_vidpids[i].pid)) {
+                return TRUE;
+            }
+        }
+        return FALSE;
+    }
+
+    // Otherwise apply VID and PID lists independently (logical AND)
+    if (filter_vids_count > 0) {
+        for (i = 0; i < filter_vids_count; i++) {
+            if (dev->vid == filter_vids[i]) {
+                break;
+            }
+        }
+        if (i == filter_vids_count) {
+            return FALSE;
+        }
+    }
+
+    if (filter_pids_count > 0) {
+        for (i = 0; i < filter_pids_count; i++) {
+            if (dev->pid == filter_pids[i]) {
+                break;
+            }
+        }
+        if (i == filter_pids_count) {
+            return FALSE;
+        }
+    }
+
+    return TRUE;
 }
 
 /*
@@ -234,6 +409,10 @@ int display_devices(void)
 	_IGNORE(ComboBox_ResetContent(hDeviceList));
 
 	for (dev = list; dev != NULL; dev = dev->next) {
+		// Apply optional device VID/PID filter from ini
+		if (device_filter_enabled && !device_matches_filter(dev)) {
+			continue;
+		}
 		// Compute the width needed to accommodate our text
 		if (dev->desc == NULL) {
 			dprintf("error: device description is empty");
@@ -1420,6 +1599,40 @@ BOOL parse_ini(void) {
 	profile_get_boolean(profile, "security", "disable_cert_install_warning", NULL, FALSE, &ic_options.disable_warning);
 	profile_get_boolean(profile, "behavior", "no_syslog_wait", NULL, FALSE, &no_syslog_wait_ini);
 	profile_get_boolean(profile, "behavior", "cleanup_oem_inf", NULL, TRUE, &cleanup_oem_inf_ini);
+	
+	// Driver visibility
+	profile_get_boolean(profile, "behavior", "show_winusb",  NULL, TRUE,  &show_winusb_ini);
+	profile_get_boolean(profile, "behavior", "show_libusb0", NULL, TRUE,  &show_libusb0_ini);
+	profile_get_boolean(profile, "behavior", "show_libusbk", NULL, TRUE,  &show_libusbk_ini);
+	profile_get_boolean(profile, "behavior", "show_cdc",     NULL, FALSE, &show_cdc_ini);
+	profile_get_boolean(profile, "behavior", "show_user",    NULL, TRUE,  &show_user_ini);
+
+	// Device filters: only active if corresponding ini keys are present and non-empty
+	reset_device_filter();
+
+	tmp = NULL;
+	if (profile_get_string(profile, "device", "filter_vid", NULL, NULL, &tmp) == 0 && (tmp != NULL)) {
+		parse_filter_vid_list(tmp);
+		safe_free(tmp);
+	}
+
+	tmp = NULL;
+	if (profile_get_string(profile, "device", "filter_pid", NULL, NULL, &tmp) == 0 && (tmp != NULL)) {
+		parse_filter_pid_list(tmp);
+		safe_free(tmp);
+	}
+
+	tmp = NULL;
+	if (profile_get_string(profile, "device", "filter_vidpid", NULL, NULL, &tmp) == 0 && (tmp != NULL)) {
+		parse_filter_vidpid_list(tmp);
+		safe_free(tmp);
+	}
+
+	if ((filter_vids_count > 0) || (filter_pids_count > 0) || (filter_vidpids_count > 0)) {
+		device_filter_enabled = TRUE;
+		dprintf("Device filter enabled: VIDs=%d, PIDs=%d, VID/PID pairs=%d",
+			filter_vids_count, filter_pids_count, filter_vidpids_count);
+	}
 	
 	// Driver list visibility
 	profile_get_boolean(profile, "behavior", "show_winusb",  NULL, TRUE,  &show_winusb_ini);
