@@ -60,6 +60,7 @@ All original libwdi APIs continue to work.
 Full embedding guide:
 
 ➡ **[docs/EMBEDDING_LIBWDI_EXTERNAL_INF.md](docs/EMBEDDING_LIBWDI_EXTERNAL_INF.md)**
+➡ **[docs/Zadig_ext_ini_opts.md](docs/Zadig_ext_ini_opts.md)**
 
 Includes examples for:
 
