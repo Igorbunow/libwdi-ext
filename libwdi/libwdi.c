@@ -1882,6 +1882,10 @@ static int install_driver_internal(void* arglist)
 		if (params->options && params->options->no_syslog_wait) {
 			static_strcat(exeargs, " --no-syslog");
 		}
+		// Optionally disable OEM INF cleanup for this installation
+		if (params->options && params->options->disable_oem_inf_cleanup) {
+			static_strcat(exeargs, " --no-oem-cleanup");
+ 		}
 	} else {
 		// Use libusb-win32's filter driver installer
 		static_strcpy(installer_name, "install-filter.exe");

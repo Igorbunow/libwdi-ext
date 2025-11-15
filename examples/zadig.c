@@ -976,11 +976,8 @@ int install_driver(void)
 			id_options.no_syslog_wait = no_syslog_wait_ini;
 			// short settle-poll (optional)
 			id_options.post_install_verify_timeout = post_install_verify_timeout_ini;
-			// Control OEM INF cleanup policy in the installer via environment
-			SetEnvironmentVariableA(
-				"WDI_CLEANUP_OEM_INF",
-				cleanup_oem_inf_ini ? "1" : "0"
-			);
+			// Control OEM INF cleanup policy in the installer via options
+			id_options.disable_oem_inf_cleanup = cleanup_oem_inf_ini ? FALSE : TRUE;
 			r = wdi_install_driver(dev, external_inf_path, user_inf_name, &id_options);
 			// Switch to non driverless-only mode and set hw ID to show the newly installed device
 			current_device_hardware_id = (dev != NULL)?safe_strdup(dev->hardware_id):NULL;
@@ -1009,11 +1006,8 @@ int install_driver(void)
 				id_options.no_syslog_wait = no_syslog_wait_ini;
 				// short settle-poll (optional)
 				id_options.post_install_verify_timeout = post_install_verify_timeout_ini;
-				// Control OEM INF cleanup policy in the installer via environment
-				SetEnvironmentVariableA(
-					"WDI_CLEANUP_OEM_INF",
-					cleanup_oem_inf_ini ? "1" : "0"
-				);
+				// Control OEM INF cleanup policy in the installer via options
+				id_options.disable_oem_inf_cleanup = cleanup_oem_inf_ini ? FALSE : TRUE;
 				r = wdi_install_driver(dev, szFolderPath, inf_name, &id_options);
 				// Switch to non driverless-only mode and set hw ID to show the newly installed device
 				current_device_hardware_id = (dev != NULL)?safe_strdup(dev->hardware_id):NULL;

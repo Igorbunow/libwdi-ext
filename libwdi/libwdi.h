@@ -217,6 +217,8 @@ struct wdi_options_install_driver {
 	BOOL no_syslog_wait;
 	/** Optional: poll SPDRP_SERVICE for up to N ms to see target service bound (0 = skip) */
 	UINT32 post_install_verify_timeout;
+	/** Optional: disable cleanup of previous OEM INFs (0 = default, 1 = skip cleanup) */
+	BOOL disable_oem_inf_cleanup;
 };
 
 // wdi_install_trusted_certificate options:

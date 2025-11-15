@@ -42,30 +42,20 @@ void plog(const char *format, ...);
 // from the same original INF name. This prevents the Windows driver
 // store from accumulating multiple libwdi-generated packages when
 // repeatedly switching drivers for the same device.
-static void cleanup_oem_infs_for_original(const char* original_name)
+static void cleanup_oem_infs_for_original(const char* original_name, BOOL disable_cleanup)
 {
 	char windir[MAX_PATH];
 	char search[MAX_PATH];
 	WIN32_FIND_DATAA fd;
 	HANDLE hFind;
 	int removed_count = 0;
-	const char* env;
 	
 	if ((original_name == NULL) || (original_name[0] == 0))
 		return;
 	
-	// Optional override: allow the caller to disable OEM INF cleanup.
-	// Default behaviour (when the variable is not set) is to keep
-	// cleanup enabled.
-	env = getenv("WDI_CLEANUP_OEM_INF");
-	if (env != NULL) {
-		if ((_stricmp(env, "0") == 0) ||
-			(_stricmp(env, "false") == 0) ||
-			(_stricmp(env, "off") == 0)) {
-			plog("OEM INF cleanup disabled by environment for OriginalInfName='%s'",
-				 original_name);
-			return;
-		}
+	if (disable_cleanup) {
+		plog("OEM INF cleanup disabled by options for OriginalInfName='%s'", original_name);
+		return;
 	}
 	
 	if (!GetWindowsDirectoryA(windir, sizeof(windir)))
@@ -944,9 +934,12 @@ int __cdecl main(int argc_ansi, char** argv_ansi)
 	}
 
 	BOOL no_syslog = FALSE;
+	BOOL disable_oem_cleanup = FALSE;
 	for (i = 1; i < argc; i++) {
 		if (argv[i] && (safe_stricmp(argv[i], "--no-syslog") == 0)) {
 			no_syslog = TRUE;
+		} else if (argv[i] && (safe_stricmp(argv[i], "--no-oem-cleanup") == 0)) {
+			disable_oem_cleanup = TRUE;
 		}
 	}
 	if (argc < 2) {
@@ -963,7 +956,7 @@ int __cdecl main(int argc_ansi, char** argv_ansi)
 	// OEM packages that were created from the same original INF
 	// name, to avoid accumulating oem*.inf entries for the same
 	// device/driver combination.
-	cleanup_oem_infs_for_original(inf_name);
+	cleanup_oem_infs_for_original(inf_name, disable_oem_cleanup);
 	r = GetFullPathNameU(".", MAX_PATH_LENGTH, path, NULL);
 	if ((r == 0) || (r > MAX_PATH_LENGTH)) {
 		plog("could not retrieve absolute path of working directory");
