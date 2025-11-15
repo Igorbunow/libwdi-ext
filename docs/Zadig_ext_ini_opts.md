@@ -205,22 +205,20 @@ gives a 2-second verification window.
   * Search the Windows driver store for existing `oemXX.inf` entries
   * Remove entries whose **OriginalInfName** matches the INF being installed
 
-* Implemented via environment variable:
+* Implemented via `wdi_options_install_driver.disable_oem_inf_cleanup`:
 
-  ```c
-  SetEnvironmentVariableA("WDI_CLEANUP_OEM_INF", "1" or "0");
+   ```c
+  // In Zadig-ext, the INI flag maps as:
+  //   cleanup_oem_inf = true  -> disable_oem_inf_cleanup = 0
+  //   cleanup_oem_inf = false -> disable_oem_inf_cleanup = 1
+  id_options.disable_oem_inf_cleanup = cleanup_oem_inf ? 0 : 1;
   ```
 
-* When `cleanup_oem_inf = true`:
 
   * repeated driver installations do **not** accumulate many duplicates
   * the driver store stays clean, even with frequent switching
 
-You can disable this (for debugging only) with:
 
-```ini
-cleanup_oem_inf = false
-```
 
 ### 3.3 Driver visibility options
 

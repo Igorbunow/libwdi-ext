@@ -26,11 +26,17 @@ Install official FTDI/ST/other vendor drivers **without bundling them**:
 ### ✔ OEM driver-store cleanup (no more `oemXX.inf` pollution)
 Prevents Windows accumulating hundreds of stale driver entries.
 
-Enabled via:
+Controlled via install options:
 
 ```c
-SetEnvironmentVariableA("WDI_CLEANUP_OEM_INF", "1");
-````
+struct wdi_options_install_driver id_options;
+memset(&id_options, 0, sizeof(id_options));
+
+// Keep the driver store clean by removing previous OEM INFs.
+// By default, cleanup is enabled (disable_oem_inf_cleanup == 0).
+// Set disable_oem_inf_cleanup = 1 to skip removal if needed.
+id_options.disable_oem_inf_cleanup = 0; /* default: perform OEM INF cleanup */
+```
 
 ### ✔ Fast installer mode (no 30–60s delay on Win10/11)
 
