@@ -104,8 +104,6 @@ id_options.no_syslog_wait = 1;
 id_options.post_install_verify_timeout = 5000; // e.g. 5 seconds
 ```
 
-Additionally, the installer executable used by this fork supports an
-environment variable to control **OEM INF cleanup** (see section 5):
 
 ```c
 // Enable removal of previous OEM INF files with matching OriginalInfName
@@ -327,7 +325,7 @@ a new driver package:
 * looks at their `OriginalInfName`
 * removes those whose `OriginalInfName` matches the INF being installed
 
-Control is done via an environment variable evaluated by the installer process:
+Control is done via ``id_options.disable_oem_inf_cleanup`` variable evaluated by the installer process:
 
 ```c
 // Enable aggressive OEM INF cleanup for the current installation
