@@ -347,9 +347,6 @@ such as:
 cleanup_oem_inf = true
 ```
 
-In embedded usage (your own application), you can simply set the environment
-variable **before** calling `wdi_install_driver()` as shown in the examples.
-
 ---
 
 ## 6. Avoiding long post-install delays (system log tailing)
